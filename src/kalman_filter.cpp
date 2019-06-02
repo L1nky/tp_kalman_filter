@@ -126,9 +126,7 @@ void prediction(float dt)
 	Matrix<float,6,6> PHI = compute_Q_w(dt);
     
     x_tilde = PHI*x_hat;
-    //cout << "P_tilde -1:\n" << P_tilde << endl;
     P_tilde = PHI*P_hat*PHI.transpose() + Q_w;
-    //cout << "P_tilde:\n" << P_tilde << endl;
 }
 
 void BARO_update_const_a(float p)
@@ -137,34 +135,27 @@ void BARO_update_const_a(float p)
     float k = x_tilde(3);
     float h0 = x_tilde(4);
     float p0 = x_tilde(5);
-    cout << "x_tilde:\n" << x_tilde << endl;
     float A = exp(-k*g*(h-h0));
-    //ROS_INFO("A : %f", A);
     Matrix<float,1,6> H_baro;
     H_baro << 0, 0, -k*g*p0, -g*(h-h0)*p0, k*g*p0, 1;
     H_baro *= A;
-    cout << "H_baro:\n" << H_baro << endl;
     
     Matrix<float,6,1> K;
     K = P_tilde*H_baro.transpose()/(H_baro*P_tilde*H_baro.transpose() + R_baro);
-    cout << "K:\n" << K << endl;
-    ROS_INFO("p: %f\tpi: %f\toffset: %f", p, (float)(H_baro*x_tilde), (H_baro*x_tilde)+2*A*p0*k*g*(h-h0));
     x_hat = x_tilde + K*(p - H_baro*x_tilde);
     P_hat = (Matrix<float,6,6>::Identity() - K*H_baro)*P_tilde;
-    cout << "x_hat:\n" << x_hat << endl;
-    //cout << "P_hat:\n" << P_hat << endl;
 }
 
 void GPS_update_const_a(float z)
 {
-	Matrix<float,1,6> H_gps;
-	H_gps << 0, 0, 1, 0, 0, 0;
+    Matrix<float,1,6> H_gps;
+    H_gps << 0, 0, 1, 0, 0, 0;
 	
     Matrix<float,6,1> K;
     K = P_tilde*H_gps.transpose()/(H_gps*P_tilde*H_gps.transpose() + R_gps);
 
-	x_hat = x_tilde + K*(z - H_gps*x_tilde);
-	P_hat = (Matrix<float,6,6>::Identity() - K*H_gps)*P_tilde;
+    x_hat = x_tilde + K*(z - H_gps*x_tilde);
+    P_hat = (Matrix<float,6,6>::Identity() - K*H_gps)*P_tilde;
 }
 
 void pos_cb(const sensor_msgs::NavSatFix::ConstPtr& msg)
@@ -220,7 +211,11 @@ void pressure_cb(const sensor_msgs::FluidPressure::ConstPtr& msg)
 
 void use_GPS_cb(const std_msgs::Bool::ConstPtr& msg)
 {
-    useGPS = msg->data;
+    if(useGPS != msg->data)
+    {
+        useGPS = msg->data;
+        ROS_INFO("useGPS set to %s at time stamp %f", useGPS ? "True" : "False", last_stamp);
+    }
 }
 
 
