@@ -119,8 +119,6 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
-link_directories(/home/osboxes/include)
-
 ## Declare a C++ library
 # add_library(${PROJECT_NAME}
 #   src/${PROJECT_NAME}/g18_robotics_practicals.cpp

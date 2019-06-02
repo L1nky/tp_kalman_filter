@@ -1,4 +1,5 @@
 #include "ros/ros.h"
+#include "std_msgs/Bool.h"
 #include "sensor_msgs/NavSatFix.h"
 #include "sensor_msgs/FluidPressure.h"
 #include "geometry_msgs/Vector3Stamped.h"
@@ -28,7 +29,7 @@ double last_stamp = 0;
 float sigma_z_gps  = 5;       // [m]
 
 //Standard deviation of the BARO readings white noise
-float sigma_z_baro = 5;       // [Pa]
+float sigma_z_baro = 500;       // [Pa]
 
 // Process model noise
 float sigma_a  = 1;           // [m/s^2 /s]
@@ -72,6 +73,8 @@ Matrix<float,6,6> G = Matrix<float,6,6>::Zero();
 
 ros::Publisher height_pub;
 
+bool useGPS = true;
+
 void init()
 {
     ROS_INFO("Init");
@@ -101,19 +104,20 @@ void init()
 
 Matrix<float,6,6> compute_Q_w(float dt)
 {
+    MatrixXf pre_A(12,12);
     MatrixXf A(12,12);
     MatrixXf B(12,12);
     
-    A << -F, G*Q*G.transpose(), Matrix<float,6,6>::Zero(), F.transpose();
+    pre_A << -F, G*Q*G.transpose(), Matrix<float,6,6>::Zero(), F.transpose();
     
-    A = A*dt;
+    A = pre_A*dt;
     B = A.exp();
     
     Matrix<float,6,6> PHI;
     PHI = B.bottomRightCorner(6,6);
     PHI.transposeInPlace();
     
-    Q_w = PHI*B.topLeftCorner(6,6);
+    Q_w = PHI*B.topRightCorner(6,6);
     return PHI;
 }
 
@@ -122,7 +126,9 @@ void prediction(float dt)
 	Matrix<float,6,6> PHI = compute_Q_w(dt);
     
     x_tilde = PHI*x_hat;
+    //cout << "P_tilde -1:\n" << P_tilde << endl;
     P_tilde = PHI*P_hat*PHI.transpose() + Q_w;
+    //cout << "P_tilde:\n" << P_tilde << endl;
 }
 
 void BARO_update_const_a(float p)
@@ -143,9 +149,10 @@ void BARO_update_const_a(float p)
     K = P_tilde*H_baro.transpose()/(H_baro*P_tilde*H_baro.transpose() + R_baro);
     cout << "K:\n" << K << endl;
     ROS_INFO("p: %f\tpi: %f\toffset: %f", p, (float)(H_baro*x_tilde), (H_baro*x_tilde)+2*A*p0*k*g*(h-h0));
-    x_hat = x_tilde + K*(p - H_baro*x_tilde - 2*A*p0*k*g*(h-h0));
+    x_hat = x_tilde + K*(p - H_baro*x_tilde);
     P_hat = (Matrix<float,6,6>::Identity() - K*H_baro)*P_tilde;
     cout << "x_hat:\n" << x_hat << endl;
+    //cout << "P_hat:\n" << P_hat << endl;
 }
 
 void GPS_update_const_a(float z)
@@ -162,8 +169,16 @@ void GPS_update_const_a(float z)
 
 void pos_cb(const sensor_msgs::NavSatFix::ConstPtr& msg)
 {
+    if(!useGPS)
+        return;
+    
     double stamp = msg->header.stamp.toSec();
-    double dt = stamp - last_stamp;
+    double dt;
+    if(last_stamp == 0)
+        dt = 0.01;
+    else
+        dt = stamp - last_stamp;
+    
     if(dt > 0)
     {
         //ROS_INFO("GPS update");
@@ -182,7 +197,12 @@ void pos_cb(const sensor_msgs::NavSatFix::ConstPtr& msg)
 void pressure_cb(const sensor_msgs::FluidPressure::ConstPtr& msg)
 {
     double stamp = msg->header.stamp.toSec();
-    double dt = stamp - last_stamp;
+    double dt;
+    if(last_stamp == 0)
+        dt = 0.01;
+    else
+        dt = stamp - last_stamp;
+    
     if(dt > 0)
     {
         //ROS_INFO("Baro update");
@@ -198,6 +218,11 @@ void pressure_cb(const sensor_msgs::FluidPressure::ConstPtr& msg)
     }
 }
 
+void use_GPS_cb(const std_msgs::Bool::ConstPtr& msg)
+{
+    useGPS = msg->data;
+}
+
 
 int main(int argc, char **argv)
 {
@@ -208,6 +233,8 @@ int main(int argc, char **argv)
     ros::Subscriber pos_sub = n.subscribe("/iris_1/global_position/raw/fix", 1000, pos_cb);
 
     ros::Subscriber pressure_sub = n.subscribe("/iris_1/imu/atm_pressure", 1000, pressure_cb);
+    
+    ros::Subscriber use_GPS_sub = n.subscribe("/useGPS", 1000, use_GPS_cb);
 
     height_pub = n.advertise<geometry_msgs::Vector3Stamped>("/g18/height", 1000);
 
